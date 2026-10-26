@@ -277,7 +277,9 @@ int ObOllamaUtils::ObOllamaComplete::get_body(common::ObIAllocator &allocator,
                                               common::ObJsonObject *&body) 
 {
   int ret = OB_SUCCESS;
-  if (model.empty() || content.empty()) { 
+  // A plain string prompt arrives as prompt; fall back to it when content is unset.
+  ObString effective_content = content.empty() ? prompt : content;
+  if (model.empty() || effective_content.empty()) {
     ret = OB_INVALID_ARGUMENT;
   } else {
     // {"model": "llama3.1", "prompt": "What is the capital of France?"}
@@ -287,7 +289,7 @@ int ObOllamaUtils::ObOllamaComplete::get_body(common::ObIAllocator &allocator,
     if (OB_FAIL(ObAIFuncJsonUtils::get_json_object(allocator, body_obj))) {
     } else if (OB_FAIL(ObAIFuncJsonUtils::get_json_string(allocator, model, model_str))) {
     } else if (OB_FAIL(body_obj->add("model", model_str))) {
-    } else if (OB_FAIL(ObAIFuncJsonUtils::get_json_string(allocator, content, content_str))) {
+    } else if (OB_FAIL(ObAIFuncJsonUtils::get_json_string(allocator, effective_content, content_str))) {
     } else if (OB_FAIL(body_obj->add("prompt", content_str))) {
     } else if (OB_FAIL(ObAIFuncJsonUtils::compact_json_object(allocator, config, body_obj))) {
     } else {
