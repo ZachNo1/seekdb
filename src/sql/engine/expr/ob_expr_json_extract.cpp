@@ -207,6 +207,17 @@ int ObExprJsonExtract::eval_json_extract(const ObExpr &expr, ObEvalCtx &ctx, ObD
   return ret;
 }
 
+static int eval_json_extract_batch(const ObExpr &expr, ObEvalCtx &ctx,
+                                   const ObBitVector &skip, const int64_t size)
+{
+  int ret = expr.args_[0]->eval_batch(ctx, skip, size);
+  // Only pre-evaluate the document; conditional/path evaluation stays scalar.
+  if (OB_SUCC(ret)) {
+    ret = expr_default_eval_batch_func(expr, ctx, skip, size);
+  }
+  return ret;
+}
+
 int ObExprJsonExtract::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_expr,
                                ObExpr &rt_expr) const
 {
@@ -216,6 +227,7 @@ int ObExprJsonExtract::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_ex
       rt_expr.eval_func_ = eval_json_extract_null;
   } else {
       rt_expr.eval_func_ = eval_json_extract;
+      rt_expr.eval_batch_func_ = eval_json_extract_batch;
   }
   return OB_SUCCESS;
 }

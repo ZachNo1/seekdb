@@ -164,12 +164,25 @@ int ObExprJsonLength::eval_json_length(const ObExpr &expr, ObEvalCtx &ctx, ObDat
   return ret;
 }
 
+static int eval_json_length_batch(const ObExpr &expr, ObEvalCtx &ctx,
+                                  const ObBitVector &skip, const int64_t size)
+{
+  int ret = expr.args_[0]->eval_batch(ctx, skip, size);
+  // Preserve batch evaluation of the document expression, including AI_EMBED.
+  // Paths retain their existing per-row evaluation semantics.
+  if (OB_SUCC(ret)) {
+    ret = expr_default_eval_batch_func(expr, ctx, skip, size);
+  }
+  return ret;
+}
+
 int ObExprJsonLength::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_expr,
                               ObExpr &rt_expr) const
 {
   UNUSED(expr_cg_ctx);
   UNUSED(raw_expr);
   rt_expr.eval_func_ = eval_json_length;
+  rt_expr.eval_batch_func_ = eval_json_length_batch;
   return OB_SUCCESS;
 }
 
