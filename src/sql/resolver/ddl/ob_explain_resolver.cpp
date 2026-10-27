@@ -21,6 +21,18 @@
 using namespace oceanbase;
 using namespace sql;
 using namespace common;
+namespace {
+bool describe_has_file_table(const ObDMLStmt &stmt, int depth = 0)
+{
+  if (depth > 64) return false;
+  for (int64_t i = 0; i < stmt.get_table_size(); ++i) {
+    const TableItem *table = stmt.get_table_item(i);
+    if (table != nullptr && (table->is_file_table_ ||
+        (table->ref_query_ != nullptr && describe_has_file_table(*table->ref_query_, depth + 1)))) return true;
+  }
+  return false;
+}
+}
 const static int64_t EXPLAIN_FORMAT = 0;
 const static int64_t EXPLAIN_DISPLAY_OPTION = 1;
 const static int64_t EXPLAIN_INTO_TABLE = 2;
@@ -64,6 +76,10 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
         LOG_WARN("failed to generate stmt for child stmt");
       } else {
         explain_stmt->set_explain_query_stmt(static_cast<ObDMLStmt *>(child_stmt));
+        if (parse_tree.reserved_ == 1 && child_stmt->is_select_stmt() &&
+            describe_has_file_table(*static_cast<ObDMLStmt *>(child_stmt))) {
+          explain_stmt->set_file_describe(true);
+        }
         ParseNode *format = parse_tree.children_[EXPLAIN_FORMAT];
         if (NULL != format) {
           switch (format->type_) {

@@ -18,6 +18,8 @@
 #include "sql/optimizer/ob_explain_log_plan.h"
 #include "sql/optimizer/ob_log_values.h"
 #include "sql/code_generator/ob_code_generator.h"
+#include "sql/resolver/dml/ob_select_stmt.h"
+#include "sql/engine/basic/ob_file_scan_utils.h"
 
 using namespace oceanbase;
 using namespace sql;
@@ -37,6 +39,8 @@ int ObExplainLogPlan::generate_normal_raw_plan()
   int ret = OB_SUCCESS;
   if (OB_ISNULL(get_stmt()) || OB_UNLIKELY(!get_stmt()->is_explain_stmt())) {
     ret = OB_ERR_UNEXPECTED;
+  } else if (static_cast<const ObExplainStmt *>(get_stmt())->is_file_describe()) {
+    ret = generate_file_describe_plan();
   } else {
     ObLogPlan *child_plan = NULL;
     const ObDMLStmt *child_stmt = NULL;
@@ -197,6 +201,71 @@ int ObExplainLogPlan::check_explain_generate_plan_with_outline(ObLogPlan *real_p
       sql_ctx->first_equal_param_cons_cnt_ = 0;
       sql_ctx->first_const_param_cons_cnt_ = 0;
       sql_ctx->first_expr_cons_cnt_ = 0;
+    }
+  }
+  return ret;
+}
+
+
+int ObExplainLogPlan::generate_file_describe_plan()
+{
+  int ret = OB_SUCCESS;
+  const ObExplainStmt *explain = static_cast<const ObExplainStmt *>(get_stmt());
+  const ObDMLStmt *child = explain->get_explain_query_stmt();
+  ObLogicalOperator *top = nullptr;
+  if (child == nullptr || !child->is_select_stmt()) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(allocate_values_as_top(top))) {
+  } else {
+    ObLogValues *values = static_cast<ObLogValues *>(top);
+    const ObSelectStmt *select = static_cast<const ObSelectStmt *>(child);
+    set_plan_root(top);
+    top->mark_is_plan_root();
+    for (int64_t i = 0; OB_SUCC(ret) && i < select->get_select_item_size(); ++i) {
+      const SelectItem &item = select->get_select_item(i);
+      const ObRawExpr *expr = item.expr_;
+      if (expr == nullptr) { ret = OB_ERR_UNEXPECTED; break; }
+      ObString name = item.alias_name_.empty() ? item.expr_name_ : item.alias_name_;
+      const ObObjType type = expr->get_result_type().get_type();
+      const char *label = "VARCHAR";
+      if (ob_is_integer_type(type)) label = "BIGINT";
+      else if (type == ObDoubleType || type == ObFloatType || type == ObNumberType) label = "DOUBLE";
+      else if (type == ObDateType) label = "DATE";
+      else if (type == ObDateTimeType || type == ObTimestampType) label = "DATETIME";
+      else if (type == ObNullType) label = "NULL";
+      bool nullable = !expr->get_result_type().has_result_flag(NOT_NULL_FLAG);
+      if (expr->is_column_ref_expr()) {
+        const auto *column = static_cast<const ObColumnRefRawExpr *>(expr);
+        const TableItem *table = child->get_table_item_by_id(column->get_table_id());
+        if (table != nullptr && table->is_file_table_ && table->function_table_expr_->is_const_raw_expr()) {
+          const ObString bytes = static_cast<const ObConstRawExpr *>(table->function_table_expr_)->get_value().get_string();
+          filesql::Definition definition; filesql::Error error;
+          if (filesql::decode_definition(std::string(bytes.ptr(), bytes.length()), definition, error) != filesql::Status::OK) {
+            ret = OB_INVALID_ARGUMENT;
+          } else {
+            const uint64_t position = column->get_column_id() - OB_APP_MIN_COLUMN_ID;
+            if (position >= definition.columns.size()) ret = OB_ERR_UNEXPECTED;
+            else label = filesql::type_name(definition.columns[position].type);
+          }
+        }
+      }
+      if (OB_SUCC(ret)) {
+        ObObj cells[6];
+        cells[0].set_varchar(name);
+        cells[1].set_varchar(ObString(label));
+        cells[2].set_varchar(ObString(nullable ? "YES" : "NO"));
+        for (int j = 3; j < 6; ++j) cells[j].set_null();
+        ObNewRow row; row.cells_ = cells; row.count_ = 6;
+        ret = values->add_row(row);
+      }
+    }
+    if (OB_SUCC(ret)) {
+      optimizer_context_.set_packed(false);
+      get_optimizer_context().get_all_exprs().reuse();
+      for (int i = 0; OB_SUCC(ret) && i < 6; ++i) ret = allocate_output_expr_for_values_op(*values);
+      values->set_op_id(0);
+      set_max_op_id(1);
+      get_optimizer_context().set_plan_type(ObPhyPlanType::OB_PHY_PLAN_LOCAL, ObPhyPlanType::OB_PHY_PLAN_LOCAL, false);
     }
   }
   return ret;

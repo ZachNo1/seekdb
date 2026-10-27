@@ -23,6 +23,7 @@
 #include "sql/engine/basic/ob_select_into_basic.h"
 #include "sql/engine/basic/ob_external_file_writer.h"
 #include "sql/resolver/dml/ob_select_stmt.h"
+#include "sql/engine/basic/ob_file_scan_utils.h"
 
 namespace oceanbase
 {
@@ -195,6 +196,13 @@ public:
   virtual void destroy() override;
 
 private:
+  int init_copy();
+  int append_copy_row();
+  int execute_copy(bool batch, int64_t max_row_count);
+  bool is_file_copy_ = false;
+  bool copy_finished_ = false;
+  filesql::Definition copy_definition_;
+  filesql::CsvWriter copy_writer_;
   int init_env_common();
   int init_csv_env();
   void set_csv_format_options();

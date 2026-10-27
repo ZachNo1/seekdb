@@ -1,3 +1,4 @@
+#include "sql/engine/basic/ob_file_scan_kernel.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -121,6 +122,29 @@ int ObResolverUtils::get_all_function_table_column_names(const TableItem &table_
                                                          ObIArray<ObString> &column_names)
 {
   int ret = OB_SUCCESS;
+  if (table_item.is_file_table_) {
+    if (params.allocator_ == nullptr || table_item.function_table_expr_ == nullptr ||
+        !table_item.function_table_expr_->is_const_raw_expr()) {
+      return OB_ERR_UNEXPECTED;
+    }
+    const ObString encoded = static_cast<const ObConstRawExpr *>(table_item.function_table_expr_)->get_value().get_string();
+    filesql::Definition definition;
+    filesql::Error error;
+    if (OB_FAIL(filesql::sql_error(filesql::decode_definition(
+            std::string(encoded.ptr(), encoded.length()), definition, error), error))) {
+    } else {
+      for (const auto &column : definition.columns) {
+        ObString name;
+        if (OB_FAIL(ob_write_string(*params.allocator_, ObString(column.name.size(), column.name.data()), name))) {
+          break;
+        } else if (OB_FAIL(column_names.push_back(name))) {
+          break;
+        }
+      }
+    }
+    return ret;
+  }
+
   ObRawExpr *table_expr = NULL;
   ObPLPackageGuard *package_guard = nullptr;
   const ObUserDefinedType *user_type = NULL;

@@ -20,6 +20,7 @@
 #include "sql/engine/ob_operator.h"
 #include "sql/engine/basic/ob_chunk_datum_store.h"
 #include "lib/charset/ob_charset.h"
+#include "sql/engine/basic/ob_file_scan_utils.h"
 
 namespace oceanbase
 {
@@ -32,11 +33,13 @@ class ObFunctionTableSpec : public ObOpSpec
 OB_UNIS_VERSION_V(1);
 public:
   ObFunctionTableSpec(common::ObIAllocator &alloc, const ObPhyOperatorType type)
-    : ObOpSpec(alloc, type), value_expr_(nullptr), column_exprs_(alloc), has_correlated_expr_(false)
+    : ObOpSpec(alloc, type), value_expr_(nullptr), column_exprs_(alloc), has_correlated_expr_(false), is_file_table_(false), file_column_ids_(alloc)
   {}
   ObExpr *value_expr_;
   common::ObFixedArray<ObExpr*, common::ObIAllocator> column_exprs_;
   bool has_correlated_expr_;
+  bool is_file_table_;
+  common::ObFixedArray<int64_t, common::ObIAllocator> file_column_ids_;
 };
 
 class ObFunctionTableOp : public ObOperator
@@ -59,6 +62,14 @@ public:
   virtual void destroy() override;
 private:
   int inner_get_next_row_udf();
+  int open_file_table();
+  int inner_get_next_file_row();
+  int fetch_file_row();
+  filesql::Definition file_definition_;
+  filesql::FileReader file_reader_;
+  std::vector<filesql::Cell> file_row_;
+  std::vector<std::vector<filesql::Cell>> file_batch_;
+  size_t file_batch_index_ = 0;
   int inner_get_next_row_sys_func();
   int get_current_result(common::ObObj &result);
   int64_t node_idx_;

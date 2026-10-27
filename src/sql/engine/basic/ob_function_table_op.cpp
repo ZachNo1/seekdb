@@ -19,6 +19,8 @@
 #include "sql/engine/basic/ob_function_table_op.h"
 #include "sql/engine/ob_exec_context.h"
 #include "sql/engine/expr/ob_expr_lob_utils.h"
+#include "sql/engine/basic/ob_file_scan_kernel.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_func_utils.h"
 
 
 namespace oceanbase
@@ -27,14 +29,17 @@ using namespace common;
 namespace sql
 {
 
-OB_SERIALIZE_MEMBER((ObFunctionTableSpec, ObOpSpec), value_expr_, column_exprs_, has_correlated_expr_);
+OB_SERIALIZE_MEMBER((ObFunctionTableSpec, ObOpSpec), value_expr_, column_exprs_, has_correlated_expr_, is_file_table_, file_column_ids_);
 
 int ObFunctionTableOp::inner_open()
 {
   int ret = OB_SUCCESS;
   node_idx_ = 0;
   already_calc_ = false;
-  if (OB_ISNULL(MY_SPEC.value_expr_)) {
+  if (MY_SPEC.is_file_table_) {
+    next_row_func_ = &ObFunctionTableOp::inner_get_next_file_row;
+    ret = open_file_table();
+  } else if (OB_ISNULL(MY_SPEC.value_expr_)) {
     ret = OB_ERR_UNEXPECTED;
   } else if (ObExtendType == MY_SPEC.value_expr_->datum_meta_.type_) {
     next_row_func_ = &ObFunctionTableOp::inner_get_next_row_udf;
@@ -48,6 +53,11 @@ int ObFunctionTableOp::inner_rescan()
 {
   int ret = OB_SUCCESS;
   if (OB_FAIL(ObOperator::inner_rescan())) {
+  } else if (MY_SPEC.is_file_table_) {
+    filesql::Error error;
+    file_batch_.clear();
+    file_batch_index_ = 0;
+    ret = filesql::sql_error(file_reader_.rescan(error), error);
   } else {
     node_idx_ = 0;
     if (MY_SPEC.has_correlated_expr_) {
@@ -67,14 +77,106 @@ int ObFunctionTableOp::inner_close()
   row_count_ = 0;
   col_count_ = 0;
   value_table_ = NULL;
+  file_reader_.close();
+  file_definition_ = filesql::Definition{};
+  std::vector<filesql::Cell>().swap(file_row_);
+  std::vector<std::vector<filesql::Cell>>().swap(file_batch_);
+  file_batch_index_ = 0;
   return ret;
 }
 
 void ObFunctionTableOp::destroy()
 {
+  // Operators use destroy() instead of their C++ destructor.
+  file_reader_.~FileReader();
+  file_definition_.~Definition();
+  file_row_.~vector();
+  file_batch_.~vector();
   ObOperator::destroy();
 }
 
+
+
+int ObFunctionTableOp::open_file_table()
+{
+  int ret=OB_SUCCESS;
+  filesql::Error error;ObDatum *metadata=nullptr;
+  if(OB_FAIL(filesql::check_enabled(*ctx_.get_my_session()))){
+  }else if(OB_FAIL(MY_SPEC.value_expr_->eval(eval_ctx_,metadata))){
+  }else if(metadata==nullptr||metadata->is_null()){ret=OB_ERR_UNEXPECTED;
+  }else{
+    ObString encoded=metadata->get_string();
+    if(OB_FAIL(filesql::sql_error(filesql::decode_definition(std::string(encoded.ptr(),encoded.length()),file_definition_,error),error))){
+    }else if(OB_FAIL(filesql::runtime_secure_root(ctx_.get_allocator(),file_definition_.secure_root))){
+    }else{
+      std::vector<size_t> projection;
+      for(int64_t i=0;i<MY_SPEC.file_column_ids_.count();++i)projection.push_back(MY_SPEC.file_column_ids_.at(i));
+      ret=filesql::sql_error(file_reader_.open(file_definition_,projection,error),error);
+    }
+  }
+  return ret;
+}
+
+int ObFunctionTableOp::fetch_file_row()
+{
+  filesql::Error error;
+  // Recheck even while serving prefetched rows, so a mutation is never hidden
+  // by the batch buffer. Keep native scalar-to-batch adaptation for SQL plans.
+  int ret = filesql::sql_error(file_reader_.check_unchanged(error), error);
+  try {
+    if (OB_SUCC(ret) && file_batch_index_ == file_batch_.size()) {
+      file_batch_index_ = 0;
+      ret = filesql::sql_error(file_reader_.next_batch(128, file_batch_, error), error);
+    }
+    if (OB_SUCC(ret)) file_row_ = std::move(file_batch_[file_batch_index_++]);
+  } catch (const std::bad_alloc &) { ret = OB_ALLOCATE_MEMORY_FAILED; }
+  return ret;
+}
+
+int ObFunctionTableOp::inner_get_next_file_row()
+{
+  int ret=OB_SUCCESS;filesql::Error error;
+  clear_evaluated_flag();
+  if(OB_FAIL(ctx_.check_status())){
+  }else if(OB_FAIL(fetch_file_row())){
+  }else{
+    for(int64_t i=0;OB_SUCC(ret)&&i<MY_SPEC.column_exprs_.count();++i){
+      size_t index=MY_SPEC.file_column_ids_.at(i);
+      ObExpr *expr=MY_SPEC.column_exprs_.at(i);ObDatum &datum=expr->locate_datum_for_write(eval_ctx_);
+      if(index>=file_row_.size()||index>=file_definition_.columns.size()){ret=OB_ERR_UNEXPECTED;break;}
+      const filesql::Cell &cell=file_row_[index];const filesql::Column &column=file_definition_.columns[index];
+      ObObj value;int64_t integer=0;double number=0;bool boolean=false;bool valid=true;
+      if(cell.is_null||column.type==filesql::Type::NULL_VALUE){datum.set_null();}
+      else if(column.type==filesql::Type::VARCHAR){
+        // A produced column borrows the current scan row until the next fetch;
+        // it has no scalar-function result buffer allocated by expression CG.
+        datum.set_string(cell.text.data(),cell.text.size());
+      }else{
+        switch(column.type){
+          case filesql::Type::BIGINT:
+            if(filesql::parse_boolean(cell.text,boolean))integer=boolean;else valid=filesql::parse_integer(cell.text,integer);
+            value.set_int(integer);break;
+          case filesql::Type::DOUBLE:
+            if(filesql::parse_boolean(cell.text,boolean))number=boolean;else valid=filesql::parse_double(cell.text,number);
+            value.set_double(number);break;
+          case filesql::Type::BOOLEAN:
+            valid=filesql::parse_boolean(cell.text,boolean);value.set_tinyint(boolean);break;
+          case filesql::Type::DATE:
+            valid=filesql::parse_temporal(cell.text,false,integer);value.set_date(integer);break;
+          case filesql::Type::DATETIME:
+            valid=filesql::parse_temporal(cell.text,true,integer);
+            if(!valid&&filesql::parse_temporal(cell.text,false,integer)){integer*=86400LL*1000000;valid=true;}
+            value.set_datetime(integer);break;
+          default:valid=false;break;
+        }
+        if(!valid){ret=OB_INVALID_ARGUMENT;LOG_USER_ERROR(OB_INVALID_ARGUMENT,"file SQL value does not match inferred schema");}
+        else ret=datum.from_obj(value,expr->obj_datum_map_);
+      }
+      if(OB_SUCC(ret))expr->set_evaluated_projected(eval_ctx_);
+    }
+  }
+  return ret;
+}
 
 int ObFunctionTableOp::get_current_result(ObObj &result)
 {

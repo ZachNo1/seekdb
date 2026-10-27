@@ -50,6 +50,8 @@ public:
   ObDMLStmt* get_explain_query_stmt() const { return explain_query_stmt_; }
   void set_explain_query_stmt(ObDMLStmt *stmt) { explain_query_stmt_ = stmt; }
   bool is_select_explain() const;
+  bool is_file_describe() const { return file_describe_; }
+  void set_file_describe(bool value) { file_describe_ = value; }
   const common::ObString& get_into_table() const { return into_table_; }
   void set_into_table(const common::ObString& into_table) { into_table_ = into_table; }
   const common::ObString& get_statement_id() const { return statement_id_; }
@@ -60,6 +62,7 @@ public:
 
   DECLARE_VIRTUAL_TO_STRING;
 private:
+  bool file_describe_ = false;
   //bool  verbose_;
   ExplainType format_;
   ObExplainDisplayOpt display_opt_;

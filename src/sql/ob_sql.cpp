@@ -270,19 +270,24 @@ int ObSql::fill_result_set(ObResultSet &result_set,
       break;
     }
     case stmt::T_EXPLAIN: {
-      ObString tname = ObString::make_string("explain_table");
-      ObString cname = ObString::make_string("Query Plan");
-      field.tname_ = tname;
-      field.org_tname_ = tname;
-      field.cname_ = cname;
-      field.org_cname_ = cname;
-      field.type_.set_type(ObVarcharType);
-      field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
-      field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
-      field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
-      field.type_.set_varchar(type_name);
-      if (OB_FAIL(result_set.reserve_field_columns(1))) {
-      } else if (OB_FAIL(result_set.add_field_column(field))) {
+      const bool describe = static_cast<const ObExplainStmt &>(basic_stmt).is_file_describe();
+      const char *names[] = {"column_name", "column_type", "null", "key", "default", "extra"};
+      const int64_t count = describe ? 6 : 1;
+      if (OB_FAIL(result_set.reserve_field_columns(count))) {
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
+        ObString tname = ObString::make_string("explain_table");
+        ObString cname = ObString::make_string(describe ? names[i] : "Query Plan");
+        field.tname_ = tname;
+        field.org_tname_ = tname;
+        field.cname_ = cname;
+        field.org_cname_ = cname;
+        field.type_.set_type(ObVarcharType);
+        field.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
+        field.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+        field.type_.set_collation_level(CS_LEVEL_IMPLICIT);
+        field.type_.set_varchar(type_name);
+        ret = result_set.add_field_column(field);
       }
       break;
     }

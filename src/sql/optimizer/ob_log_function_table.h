@@ -27,11 +27,13 @@ class ObLogFunctionTable : public ObLogicalOperator
 public:
   ObLogFunctionTable(ObLogPlan &plan)
       : ObLogicalOperator(plan),
+        is_file_table_(false),
         table_id_(OB_INVALID_ID),
         value_expr_(NULL),
         table_name_(),
         access_exprs_() { }
   virtual ~ObLogFunctionTable() {}
+  bool is_file_table_;
   void add_values_expr(ObRawExpr* expr) { value_expr_ = expr; }
   const ObRawExpr* get_value_expr() const { return value_expr_; }
   ObRawExpr* get_value_expr() { return value_expr_; }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "sql/engine/basic/ob_file_scan_kernel.h"
 #define USING_LOG_PREFIX SQL_OPT
 #include "config_bridge.h"
 #include "ob_log_plan.h"
@@ -2239,6 +2240,7 @@ int ObLogPlan::allocate_function_table_path(FunctionTablePath *func_table_path,
     ret = OB_ALLOCATE_MEMORY_FAILED;
   } else {
     op->set_table_id(func_table_path->table_id_);
+    op->is_file_table_ = table_item->is_file_table_;
     op->add_values_expr(func_table_path->value_expr_);
     op->set_table_name(table_item->get_table_name());
     if (OB_FAIL(append(op->get_filter_exprs(), func_table_path->filter_))) {
@@ -6829,7 +6831,28 @@ int ObLogPlan::allocate_select_into_as_top(ObLogicalOperator *&old_top)
       select_into->set_buffer_size(into_item->buffer_size_);
       select_into->set_escaped_cht(into_item->escaped_cht_);
       select_into->set_cs_type(into_item->cs_type_);
-      select_into->set_external_properties(into_item->external_properties_);
+      ObString properties = into_item->external_properties_;
+      if (properties.prefix_match(ObString(filesql::COPY_PREFIX))) {
+        filesql::Definition definition; filesql::Error error;
+        const int64_t prefix = sizeof(filesql::COPY_PREFIX) - 1;
+        if (OB_FAIL(filesql::sql_error(filesql::decode_definition(
+            std::string(properties.ptr() + prefix, properties.length() - prefix), definition, error), error))) {
+        } else {
+          definition.columns.clear();
+          for (int64_t i = 0; i < stmt->get_select_item_size(); ++i) {
+            const SelectItem &item = stmt->get_select_item(i);
+            ObString name = item.alias_name_.empty() ? item.expr_name_ : item.alias_name_;
+            definition.columns.push_back({std::string(name.ptr(), name.length()), filesql::Type::VARCHAR, true, 0});
+          }
+          std::string encoded;
+          if (OB_FAIL(filesql::sql_error(filesql::encode_definition(definition, encoded, error), error))) {
+          } else {
+            encoded.insert(0, filesql::COPY_PREFIX);
+            ret = ob_write_string(get_allocator(), ObString(encoded.size(), encoded.data()), properties);
+          }
+        }
+      }
+      select_into->set_external_properties(properties);
       select_into->set_child(ObLogicalOperator::first_child, old_top);
       // compute property
       if (OB_FAIL(select_into->compute_property())) {
