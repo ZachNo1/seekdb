@@ -11987,6 +11987,69 @@ int ObLogPlan::construct_startup_filter_for_limit(ObRawExpr *limit_expr, ObLogic
   return ret;
 }
 
+namespace {
+// A membership scan may replace a positive natural-language score with a
+// positive presence indicator only if no consumer can observe its magnitude.
+bool fts_expr_needs_score(const ObRawExpr *expr, const ObRawExpr *match, int depth = 0)
+{
+  if (expr == nullptr || depth > 128) { return true; }
+  // Row-valued aggregates still need the existing ordered lookup path.
+  // Membership-only aggregates consume constants/counts, never base columns.
+  if (expr->get_expr_type() == T_FUN_MATCH_AGAINST || expr->get_expr_type() == T_FUN_ES_MATCH || expr->get_expr_type() == T_FUN_ES_SCORE
+      || expr->is_column_ref_expr() || expr->is_query_ref_expr() || expr->is_exec_param_expr()) { return true; }
+  for (int64_t i = 0; i < expr->get_param_count(); ++i) {
+    if (fts_expr_needs_score(expr->get_param_expr(i), match, depth + 1)) { return true; }
+  }
+  return false;
+}
+
+int fts_aggregate_needs_score(const ObDMLStmt &stmt, const ObMatchFunRawExpr &match, bool &needed)
+{
+  int ret = OB_SUCCESS;
+  needed = true;
+  if (!stmt.is_select_stmt() || match.get_mode_flag() != NATURAL_LANGUAGE_MODE
+      || match.is_es_match() || !match.get_columns_boosts().empty()) { return ret; }
+  const ObSelectStmt &select = static_cast<const ObSelectStmt &>(stmt);
+  // Scalar aggregates have no implicit relevance ordering. Leave TOP-K,
+  // ordered aggregates, subqueries, joins, and score comparisons unchanged.
+  if (!select.is_scala_group_by() || !select.is_single_table_stmt()
+      || select.get_table_item(0) == nullptr || !select.get_table_item(0)->is_basic_table()
+      || select.has_order_by() || select.has_limit() || select.get_subquery_expr_size() != 0
+      || select.get_condition_exprs().count() != 1) { return ret; }
+  for (int64_t i = 0; i < select.get_aggr_item_size(); ++i) {
+    const ObItemType type = select.get_aggr_item(i)->get_expr_type();
+    if (type != T_FUN_COUNT && type != T_FUN_SUM && type != T_FUN_AVG
+        && type != T_FUN_MIN && type != T_FUN_MAX) { return ret; }
+    const ObAggFunRawExpr *aggregate = select.get_aggr_item(i);
+    for (int64_t j = 0; j < aggregate->get_param_count(); ++j) {
+      if (aggregate->get_param_expr(j) == nullptr
+          || !aggregate->get_param_expr(j)->is_static_const_expr()) { return ret; }
+    }
+  }
+  bool has_positive_filter = false;
+  for (int64_t i = 0; i < select.get_condition_exprs().count(); ++i) {
+    const ObRawExpr *expr = select.get_condition_exprs().at(i);
+    if (expr != nullptr && expr->get_expr_type() == T_OP_BOOL && expr->get_param_count() == 1
+        && expr->get_param_expr(0) == &match) { has_positive_filter = true; }
+  }
+  if (has_positive_filter) {
+    ObSEArray<ObRawExpr *, 16> expressions;
+    if (OB_FAIL(select.get_relation_exprs(expressions))) {
+    } else {
+      needed = false;
+      for (int64_t i = 0; !needed && i < expressions.count(); ++i) {
+        // The one positive MATCH predicate is guaranteed by the posting
+        // stream itself. Every other consumer must be entirely score-free.
+        if (expressions.at(i) != select.get_condition_exprs().at(0)) {
+          needed = fts_expr_needs_score(expressions.at(i), &match);
+        }
+      }
+    }
+  }
+  return ret;
+}
+}
+
 int ObLogPlan::prepare_text_retrieval_scan(const ObIArray<ObRawExpr *> &scan_match_exprs,
                                            const ObIArray<ObRawExpr *> &scan_match_filters,
                                            const ObIArray<ObRawExpr *> &all_match_filters,
@@ -12039,6 +12102,15 @@ int ObLogPlan::prepare_text_retrieval_scan(const ObIArray<ObRawExpr *> &scan_mat
     ObTextRetrievalInfo &tr_info = table_scan->get_text_retrieval_info();
     tr_info.match_expr_ = match_against;
     tr_info.pushdown_match_filter_ = match_pred;
+    if (!table_scan->use_index_merge() && !table_scan->is_vec_adaptive_scan()
+        && !table_scan->is_vec_idx_scan_post_filter()) {
+      OZ(fts_aggregate_needs_score(*get_stmt(), *match_against, tr_info.need_calc_relevance_));
+      if (OB_SUCC(ret) && !tr_info.need_calc_relevance_) {
+        // All emitted rows already satisfy this exact membership predicate;
+        // no parent expression can observe a synthetic relevance value.
+        tr_info.pushdown_match_filter_ = nullptr;
+      }
+    }
     // The mapping table is absent when the data-table rowkey is used as the document ID.
     table_scan->set_doc_id_index_table_id(tr_info.doc_id_idx_tid_);
     if (table_scan->is_vec_adaptive_scan() || table_scan->is_vec_idx_scan_post_filter()) {

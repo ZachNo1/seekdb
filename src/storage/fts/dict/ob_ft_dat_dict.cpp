@@ -310,7 +310,10 @@ int ObArrayHashMap::find(const ObFTSingleWord &word, ObFTWordCode &code) const
       ret = OB_SUCCESS;
       break;
     } else {
-      index = (index + 3) % header_.capacity_;
+      // init() allocates at least 101 slots, so one subtraction preserves
+      // the existing stride-three probe order without another integer divide.
+      index += 3;
+      if (index >= header_.capacity_) { index -= header_.capacity_; }
     }
   }
   return ret;
@@ -322,7 +325,8 @@ int ObArrayHashMap::insert(const ObString &key, ObFTWordCode code)
   uint64_t hash = key.hash();
   uint64_t index = hash % header_.capacity_;
   while (header_.data[index].used) {
-    index = (index + 3) % header_.capacity_;
+    index += 3;
+    if (index >= header_.capacity_) { index -= header_.capacity_; }
   }
 
   header_.data[index].code = code;

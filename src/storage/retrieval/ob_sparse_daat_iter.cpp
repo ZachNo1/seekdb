@@ -26,6 +26,7 @@ namespace storage
 ObSRMergeCmp::ObSRMergeCmp()
   : cmp_func_(nullptr),
     iter_ids_(nullptr),
+    binary_ids_(false),
     is_inited_(false)
 {
 }
@@ -39,6 +40,9 @@ int ObSRMergeCmp::init(
     ret = OB_ERR_UNEXPECTED;
   } else {
     iter_ids_ = iter_ids;
+    // FTS binary document IDs use exact byte ordering, with no space padding.
+    // Other sparse-retrieval ID types/collations retain their normal comparator.
+    binary_ids_ = id_meta.type_ == ObVarcharType && id_meta.cs_type_ == CS_TYPE_BINARY;
     common::ObDatumBasicFuncs *basic_funcs = ObDatumFuncs::get_basic_func(id_meta.type_, id_meta.cs_type_);
     cmp_func_ = basic_funcs->null_first_cmp_;
     if (OB_ISNULL(cmp_func_)) {
@@ -59,11 +63,22 @@ int ObSRMergeCmp::cmp(
   if (IS_NOT_INIT) {
     ret = OB_NOT_INIT;
   } else {
-    int tmp_ret = 0;
-    if (OB_FAIL(cmp_func_(
-            get_id_datum(l.iter_idx_), get_id_datum(r.iter_idx_), tmp_ret, nullptr))) {
+    const ObDatum &left = get_id_datum(l.iter_idx_);
+    const ObDatum &right = get_id_datum(r.iter_idx_);
+    if (binary_ids_) {
+      if (left.is_null() || right.is_null()) {
+        cmp_ret = left.is_null() ? (right.is_null() ? 0 : -1) : 1;
+      } else {
+        const uint32_t len = MIN(left.len_, right.len_);
+        const int cmp = len == 0 ? 0 : MEMCMP(left.ptr_, right.ptr_, len);
+        cmp_ret = cmp != 0 ? cmp : static_cast<int64_t>(left.len_) - right.len_;
+      }
     } else {
-      cmp_ret = tmp_ret;
+      int tmp_ret = 0;
+      if (OB_FAIL(cmp_func_(left, right, tmp_ret, nullptr))) {
+      } else {
+        cmp_ret = tmp_ret;
+      }
     }
   }
   return ret;
@@ -441,9 +456,11 @@ int ObSRDaaTIterImpl::project_results(const int64_t count)
     ObDatum &id_proj_datum = id_proj_expr->locate_datum_for_write(*eval_ctx);
     set_datum_func_(id_proj_datum, buffered_domain_ids_[0]);
     id_proj_expr->set_evaluated_projected(*eval_ctx);
-    ObDatum &relevance_proj_datum = relevance_proj_expr->locate_datum_for_write(*eval_ctx);
-    relevance_proj_datum.set_double(buffered_relevances_[0]);
-    relevance_proj_expr->set_evaluated_projected(*eval_ctx);
+    if (iter_param_->need_project_relevance()) {
+      ObDatum &relevance_proj_datum = relevance_proj_expr->locate_datum_for_write(*eval_ctx);
+      relevance_proj_datum.set_double(buffered_relevances_[0]);
+      relevance_proj_expr->set_evaluated_projected(*eval_ctx);
+    }
   }
   return ret;
 }

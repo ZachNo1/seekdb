@@ -95,10 +95,17 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
   } else {
     const char *doc = input_doc_->ptr_;
     const uint32_t doc_len = get_input_buf_len();
+    const bool single_byte_ascii = cs_->mbminlen == 1;
     int64_t token_len = 0;
     // to next non-whitespace pos
     while (OB_SUCC(ret) && found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      // ASCII has width one in these charsets. UTF-16 and non-ASCII
+      // bytes still use the charset's original multibyte/invalid-input logic.
+      int64_t c_len = single_byte_ascii && static_cast<unsigned char>(doc[trav_pos_]) < 0x80
+          ? 1 : ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      // Some charset helpers return the lead byte's nominal width for an
+      // incomplete suffix. Treat that suffix like other invalid input.
+      if (c_len > doc_len - trav_pos_) { c_len = 0; }
       trav_pos_ += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {// if char is invalid, just skip the rest of document
         iter_end_ = true;
@@ -112,7 +119,13 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
     // to next whitespace pos
     while (OB_SUCC(ret) && !found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      // ASCII has width one in these charsets. UTF-16 and non-ASCII
+      // bytes still use the charset's original multibyte/invalid-input logic.
+      int64_t c_len = single_byte_ascii && static_cast<unsigned char>(doc[trav_pos_]) < 0x80
+          ? 1 : ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      // Some charset helpers return the lead byte's nominal width for an
+      // incomplete suffix. Treat that suffix like other invalid input.
+      if (c_len > doc_len - trav_pos_) { c_len = 0; }
       trav_pos_ += c_len;
       token_len += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {

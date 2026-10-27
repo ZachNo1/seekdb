@@ -1497,7 +1497,7 @@ int ObDASIterUtils::create_text_retrieval_sub_tree(
       merge_iter_param.topk_mode_ = 1;
       merge_iter_param.daat_mode_ = 1;
     } else if (merge_iter_param.query_tokens_.count() > OB_MAX_TEXT_RETRIEVAL_TOKEN_CNT
-        || (!is_func_lookup && !ir_scan_ctdef->need_proj_relevance_score())) {
+        || (!is_func_lookup && !ir_scan_ctdef->need_proj_relevance_score() && ir_scan_ctdef->need_calc_relevance())) {
       if (BOOLEAN_MODE == ir_scan_ctdef->mode_flag_) {
         ret = OB_NOT_SUPPORTED;
         LOG_USER_ERROR(OB_NOT_SUPPORTED, "Boolean mode with more than 256 tokens is");
