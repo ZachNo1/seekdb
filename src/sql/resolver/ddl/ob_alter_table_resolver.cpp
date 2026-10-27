@@ -1,3 +1,4 @@
+#include "sql/resolver/ddl/ob_ai_column_resolver_utils.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -3457,6 +3458,21 @@ int ObAlterTableResolver::resolve_add_column(const ParseNode &node, ObColumnName
         if (OB_SUCC(ret)) {
           if (OB_FAIL(alter_table_stmt->add_column(alter_column_schema))) {
           } else if (FALSE_IT(alter_table_stmt->set_sql_mode(session_info_->get_sql_mode()))) {
+          }
+          const ParseNode *definition = AiColumnResolverUtils::definition(node.children_[i]);
+          if (OB_SUCC(ret) && definition != nullptr) {
+            ObSEArray<ObString, 4> ai_names;
+            ObSEArray<ObColumnSchemaV2, 3> hidden_columns;
+            OZ(ai_names.push_back(alter_column_schema.get_column_name_str()));
+            OZ(AiColumnResolverUtils::build_hidden_columns(*allocator_, *table_schema_, alter_column_schema,
+                                                          *definition, ai_names, hidden_columns));
+            for (int j = 0; OB_SUCC(ret) && j < hidden_columns.count(); ++j) {
+              AlterColumnSchema hidden;
+              OZ(hidden.ObColumnSchemaV2::assign(hidden_columns.at(j)));
+              hidden.set_column_id(OB_INVALID_ID);
+              hidden.alter_type_ = OB_DDL_ADD_COLUMN;
+              OZ(alter_table_stmt->add_column(hidden));
+            }
           }
         }
       }

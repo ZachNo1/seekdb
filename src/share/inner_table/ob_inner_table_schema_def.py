@@ -2467,6 +2467,26 @@ all_objauth_mysql_def = dict(
 def_table_schema(**all_objauth_mysql_def)
 def_table_schema(**gen_history_table_def(1134, all_objauth_mysql_def))
 
+def_table_schema(
+  owner = 'seekdb', table_name = '__all_ai_column_task', table_id = '1135',
+  table_type = 'SYSTEM_TABLE',
+  gm_columns = ['gmt_create', 'gmt_modified'],
+  is_cluster_private = False, meta_record_in_sys = False,
+  rowkey_columns = [('table_id', 'int'), ('column_id', 'int'), ('request_id', 'varchar:64')],
+  normal_columns = [
+    ('eligible_ts', 'timestamp', 'false'),
+    ('rowkey_predicate', 'varchar:16384', 'false'),
+    ('state', 'int', 'false', '0'), ('retry_count', 'int', 'false', '0'),
+    ('schema_version', 'int', 'false'),
+    ('definition', 'varchar:OB_MAX_DEFAULT_VALUE_LENGTH', 'false'),
+    ('model_name', 'varchar:128', 'false'),
+    ('input', 'longtext', 'true'), ('config', 'longtext', 'true'),
+    ('last_error', 'varchar:2048', 'true'),
+    ('result', 'longtext', 'true'), ('result_is_null', 'int', 'false', '0')
+  ]
+)
+
+
 
 # Reserved position (placeholder before this line)
 # Placeholder suggestion for this section: Use actual table names for placeholders
@@ -13865,6 +13885,31 @@ def_table_schema(
     FROM oceanbase.__all_virtual_change_stream_refresh_stat
   """.replace("\n", " ")
 )
+
+def_table_schema(
+  owner = 'seekdb',
+  table_name = '__all_ai_column',
+  table_id = '21680',
+  table_type = 'SYSTEM_VIEW',
+  rowkey_columns = [], normal_columns = [], gm_columns = [],
+  view_definition = """
+    SELECT r.table_id, r.column_id, r.column_name,
+           CAST(json_unquote(json_extract(CASE WHEN p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1' AND json_valid(CONVERT(p.cur_default_value_v2 USING utf8mb4)) THEN CONVERT(p.cur_default_value_v2 USING utf8mb4) ELSE '{}' END, '$.max_retries')) AS SIGNED) AS max_retries,
+           json_unquote(json_extract(CASE WHEN p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1' AND json_valid(CONVERT(p.cur_default_value_v2 USING utf8mb4)) THEN CONVERT(p.cur_default_value_v2 USING utf8mb4) ELSE '{}' END, '$.normalized_expr')) AS normalized_expr,
+           s.column_id AS state_column_id, q.column_id AS request_column_id,
+           p.column_id AS result_spec_column_id
+    FROM oceanbase.__all_column p
+    JOIN oceanbase.__all_column r ON r.table_id = p.table_id
+      AND r.column_name = json_unquote(json_extract(CASE WHEN p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1' AND json_valid(CONVERT(p.cur_default_value_v2 USING utf8mb4)) THEN CONVERT(p.cur_default_value_v2 USING utf8mb4) ELSE '{}' END, '$.column_name'))
+    JOIN oceanbase.__all_column s ON s.table_id = p.table_id
+      AND s.column_name = json_unquote(json_extract(CASE WHEN p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1' AND json_valid(CONVERT(p.cur_default_value_v2 USING utf8mb4)) THEN CONVERT(p.cur_default_value_v2 USING utf8mb4) ELSE '{}' END, '$.state_column'))
+    JOIN oceanbase.__all_column q ON q.table_id = p.table_id
+      AND q.column_name = json_unquote(json_extract(CASE WHEN p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1' AND json_valid(CONVERT(p.cur_default_value_v2 USING utf8mb4)) THEN CONVERT(p.cur_default_value_v2 USING utf8mb4) ELSE '{}' END, '$.request_column'))
+    WHERE p.is_hidden = 1 AND p.comment = 'seekdb.ai-column.v1'
+      AND r.is_hidden = 0 AND s.is_hidden = 1 AND q.is_hidden = 1
+  """.replace("\n", " ")
+)
+
 
 # Reserved position (placeholder before this line)
 # Placeholder suggestion for this section: Use the actual view name for placeholder

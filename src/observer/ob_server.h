@@ -1,3 +1,4 @@
+#include "observer/ai_service/ob_ai_column_worker.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -426,6 +427,7 @@ private:
 
 
   common::ObMySQLProxy sql_proxy_;
+  AiColumnWorker ai_column_worker_;
   common::ObMySQLProxy ddl_sql_proxy_;
 
   // The OceanBase configuration relating to.
