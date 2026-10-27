@@ -1,3 +1,4 @@
+#include "sql/engine/dml/ob_ai_column_dml.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -2165,6 +2166,9 @@ int ObDMLService::handle_after_processing_multi_row(ObDMLModifyRowsList *dml_mod
             }
           }
         }
+        if (OB_SUCC(ret) && dml_ctdef.has_ai_columns_) {
+          OZ(AiColumnDml::after_row(op, dml_ctdef, dml_event));
+        }
         // process after row trigger
         if (OB_SUCC(ret) && dml_ctdef.trig_ctdef_.all_tm_points_.has_after_row()) {
           ObEvalCtx &eval_ctx = op.get_eval_ctx();
@@ -2216,6 +2220,9 @@ int ObDMLService::handle_after_processing_single_row(ObDMLModifyRowNode &modify_
         }
       } else if (OB_FAIL(ForeignKeyHandle::do_handle(op, dml_ctdef, dml_rtdef))) {
       }
+    }
+    if (OB_SUCC(ret) && dml_ctdef.has_ai_columns_) {
+      OZ(AiColumnDml::after_row(op, dml_ctdef, dml_event));
     }
     if (OB_SUCC(ret) && OB_FAIL(TriggerHandle::do_handle_after_row(op, dml_ctdef.trig_ctdef_, dml_rtdef.trig_rtdef_, dml_event))) {
     }

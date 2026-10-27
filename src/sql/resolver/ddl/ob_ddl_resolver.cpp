@@ -2068,6 +2068,7 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
   ObObjParam default_value;
   default_value.set_null();
   bool is_set_cur_default = false;
+  bool seen_ai_column = false;
 
   SMART_VAR(ObSArray<ObConstraint>, alter_csts) {
     ObCreateTableStmt *create_table_stmt = nullptr;
@@ -2153,6 +2154,11 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
         }
         break;
       }
+      case T_AI_COLUMN_DEFINITION:
+        if (seen_ai_column) { ret = OB_INVALID_ARGUMENT; }
+        seen_ai_column = true;
+        // Resolve after all business columns are known.
+        break;
       case T_CONSTR_AUTO_INCREMENT:
         if (ob_is_text_tc(column.get_data_type()) || ob_is_json_tc(column.get_data_type())
             || ob_is_geometry_tc(column.get_data_type())) {

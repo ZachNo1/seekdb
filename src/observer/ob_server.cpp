@@ -1331,6 +1331,10 @@ int ObServer::start()
       FLOG_INFO("success to start net frame");
     }
 
+    if (OB_SUCC(ret) && OB_FAIL(ai_column_worker_.start_worker(sql_proxy_))) {
+      LOG_ERROR("fail to start AI column worker", K(ret));
+    }
+
     if (OB_SUCC(ret) && OB_FAIL(standby_module_->start_listener())) {
       LOG_ERROR("fail to start standby gRPC service", KR(ret));
     }
@@ -1553,6 +1557,9 @@ int ObServer::stop()
   int fail_ret = OB_SUCCESS;
   FLOG_INFO("[OBSERVER_NOTICE] stop observer begin");
   LOG_DBA_INFO_V2(OB_SERVER_STOP_BEGIN, "observer stop begin.");
+  // Join while schema, SQL and storage services are still alive.
+  ai_column_worker_.stop();
+  ai_column_worker_.wait();
 
   if (in_process_) {
     // DDL retries must observe cancellation while schema and SQL services are still available.

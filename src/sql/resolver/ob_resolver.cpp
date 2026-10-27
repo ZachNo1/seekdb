@@ -1,3 +1,4 @@
+#include "sql/resolver/ddl/ob_ai_column_resolver_utils.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -242,6 +243,13 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
         REGISTER_STMT_RESOLVER(Insert);
         break;
       }
+      case T_AI_COLUMN_RETRY: {
+        if (OB_FAIL(AiColumnResolverUtils::rewrite_retry(params_, parse_tree, real_parse_tree))) {
+        } else {
+          REGISTER_STMT_RESOLVER(Update);
+        }
+        break;
+      }
       case T_UPDATE: {
         REGISTER_STMT_RESOLVER(Update);
         break;
@@ -398,10 +406,21 @@ int ObResolver::resolve(IsPrepared if_prepared, const ParseNode &parse_tree, ObS
         REGISTER_STMT_RESOLVER(SetTransaction);
         break;
       }
+      case T_SHOW_COLUMNS: {
+        if (real_parse_tree->num_child_ == 4 && real_parse_tree->children_[0] != nullptr
+            && real_parse_tree->children_[0]->type_ == T_AI_COLUMN_DEFINITION) {
+          if (OB_FAIL(AiColumnResolverUtils::rewrite_show(params_, parse_tree, real_parse_tree))) {
+          } else {
+            ret = select_stmt_resolver_func<ObSelectResolver>(params_, *real_parse_tree, stmt);
+          }
+        } else {
+          REGISTER_STMT_RESOLVER(Show);
+        }
+        break;
+      }
       case T_SHOW_TABLES:
       case T_SHOW_DATABASES:
       case T_SHOW_VARIABLES:
-      case T_SHOW_COLUMNS:
       case T_SHOW_SCHEMA:
       case T_SHOW_CREATE_DATABASE:
       case T_SHOW_CREATE_TABLE:

@@ -101,6 +101,12 @@ for version in ['1.0','2.0']:
 expect('parquet csv join','SELECT a.id,b.text FROM '+left+' a JOIN '+filefn('data1.0.parquet','read_parquet')+' b ON a.id=b.id ORDER BY a.id;', ['1\tone','2\tNULL','3\tthree','4\t世界'])
 (root/'broken.parquet').write_bytes(b'PAR1BADPAR1')
 expect('corrupt parquet','SELECT * FROM '+filefn('broken.parquet','read_parquet')+';',error=1210)
+# Tiny malformed metadata declaring repeated enormous nested lists must be
+# rejected before allocating every declared child array.
+metadata=bytes([0x19])+bytes([0xf9,0x80,0x80,0x10])*32+bytes([0])
+(root/'budget.parquet').write_bytes(b'PAR1'+metadata+len(metadata).to_bytes(4,'little')+b'PAR1')
+expect('parquet metadata allocation bound','SELECT * FROM '+filefn('budget.parquet','read_parquet')+';',error=1210)
+
 expect('glob discovery','SELECT COUNT(*) FROM glob('+literal(root/'data*.parquet')+');',['2'])
 
 copy_path=root/'export.csv'

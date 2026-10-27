@@ -1,3 +1,4 @@
+#include "sql/resolver/ddl/ob_ai_column_resolver_utils.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -116,6 +117,20 @@ int ObDelUpdResolver::resolve_assignments(const ParseNode &parse_node,
           } else {
             if (OB_FAIL(check_same_base_table(*table, *ref_expr))) {
             }
+          }
+        }
+      }
+      if (OB_SUCC(ret) && !AiColumnResolverUtils::internal_session(*session_info_)
+          && params_.resolver_scope_stmt_type_ != T_AI_COLUMN_RETRY) {
+        const ObTableSchema *schema = nullptr;
+        OZ(schema_checker_->get_table_schema(table->get_base_table_item().ref_id_, schema));
+        CK(schema != nullptr);
+        if (OB_SUCC(ret)) {
+          const uint64_t cid = column->base_cid_ == OB_INVALID_ID ? ref_expr->get_column_id() : column->base_cid_;
+          const ObColumnSchemaV2 *assigned = schema->get_column_schema(cid);
+          if (assigned != nullptr && AiColumnResolverUtils::is_ai_column(*schema, assigned->get_column_name_str())) {
+            ret = OB_NOT_SUPPORTED;
+            LOG_USER_ERROR(OB_NOT_SUPPORTED, "direct assignment to AI result columns");
           }
         }
       }
@@ -2224,6 +2239,19 @@ int ObDelUpdResolver::resolve_insert_columns(const ParseNode *node,
       }
     }
   }
+  if (OB_SUCC(ret) && !AiColumnResolverUtils::internal_session(*session_info_)) {
+    const ObTableSchema *schema = nullptr;
+    OZ(schema_checker_->get_table_schema(table_item->get_base_table_item().ref_id_, schema));
+    CK(schema != nullptr);
+    for (int64_t i = 0; OB_SUCC(ret) && i < table_info.values_desc_.count(); ++i) {
+      const ObColumnSchemaV2 *column = schema->get_column_schema(table_info.values_desc_.at(i)->get_column_id());
+      if (column != nullptr && AiColumnResolverUtils::is_ai_column(*schema, column->get_column_name_str())) {
+        ret = OB_NOT_SUPPORTED;
+        LOG_USER_ERROR(OB_NOT_SUPPORTED, "direct assignment to AI result columns");
+      }
+    }
+  }
+
   return ret;
 }
 int ObDelUpdResolver::resolve_insert_values(const ParseNode *node,

@@ -1,3 +1,4 @@
+#include "sql/resolver/ddl/ob_ai_column_resolver_utils.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -892,6 +893,35 @@ int ObCreateTableResolver::resolve_table_elements(const ParseNode *node,
           ObColumnNameHashWrapper name_key(hidden_col.get_column_name_str());
           if (OB_FAIL(column_name_set_.set_refactored(name_key))) {
           }
+        }
+      }
+    }
+
+    if (OB_SUCC(ret) && RESOLVE_NON_COL != resolve_rule) {
+      table_schema.set_max_used_column_id(cur_column_id_);
+      ObSEArray<ObString, 4> ai_names;
+      for (int32_t i = 0; OB_SUCC(ret) && i < node->num_child_; ++i) {
+        const ParseNode *element = node->children_[i];
+        if (AiColumnResolverUtils::definition(element) != nullptr) {
+          const ParseNode *name = element->children_[0]->children_[2];
+          OZ(ai_names.push_back(ObString(name->str_len_, name->str_value_)));
+        }
+      }
+      for (int32_t i = 0; OB_SUCC(ret) && i < node->num_child_; ++i) {
+        const ParseNode *element = node->children_[i];
+        const ParseNode *definition = AiColumnResolverUtils::definition(element);
+        if (definition != nullptr) {
+          const ParseNode *name = element->children_[0]->children_[2];
+          const ObColumnSchemaV2 *column = table_schema.get_column_schema(ObString(name->str_len_, name->str_value_));
+          ObSEArray<ObColumnSchemaV2, 3> hidden_columns;
+          CK(column != nullptr);
+          OZ(AiColumnResolverUtils::build_hidden_columns(*allocator_, table_schema, *column,
+                                                        *definition, ai_names, hidden_columns));
+          for (int j = 0; OB_SUCC(ret) && j < hidden_columns.count(); ++j) {
+            hidden_columns.at(j).set_column_id(gen_column_id());
+            OZ(table_schema.add_column(hidden_columns.at(j)));
+          }
+          table_schema.set_max_used_column_id(cur_column_id_);
         }
       }
     }

@@ -1706,6 +1706,7 @@ stmt::StmtType ObResolverUtils::get_stmt_type_by_item_type(const ObItemType item
       SET_STMT_TYPE(T_INSERT);
       SET_STMT_TYPE(T_DELETE);
       SET_STMT_TYPE(T_UPDATE);
+      case T_AI_COLUMN_RETRY: type = stmt::T_UPDATE; break;
       SET_STMT_TYPE(T_REPLACE);
       // ps
       SET_STMT_TYPE(T_PREPARE);

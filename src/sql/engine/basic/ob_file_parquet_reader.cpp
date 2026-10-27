@@ -63,7 +63,10 @@ private:
         out.text.assign(data_,position_,number);position_+=number;return true;
       case 9:case 10:{
         if(!byte(b))return false;uint64_t size=b>>4;uint8_t element=b&15;
-        if(size==15&&!varint(size))return false;if(size>262144)return false;
+        if(size==15&&!varint(size))return false;
+        // Reserve the allocation budget before resize, not only when visiting
+        // children: malicious nested lists can otherwise allocate repeatedly.
+        if(size>262144-allocated_nodes_)return false;allocated_nodes_+=size;
         out.list.resize(size);for(Node &node:out.list)if(!value(element,node,depth+1,true))return false;return true;
       }
       case 11:{
@@ -78,13 +81,14 @@ private:
           int id=b>>4;uint8_t kind=b&15;
           if(id!=0)id+=previous;else{if(!varint(number))return false;id=static_cast<int64_t>((number>>1)^uint64_t(-static_cast<int64_t>(number&1)));}
           if(id<=0||id>32767||out.fields.count(id))return false;previous=id;
+          if(allocated_nodes_>=262144)return false;++allocated_nodes_;
           Node child;if(!value(kind,child,depth+1,false))return false;out.fields.emplace(id,std::move(child));
         }
       }
       default:return false;
     }
   }
-  const std::string &data_;size_t position_=0,nodes_=0;
+  const std::string &data_;size_t position_=0,nodes_=0,allocated_nodes_=0;
 };
 struct PhysicalColumn {
   std::string name;

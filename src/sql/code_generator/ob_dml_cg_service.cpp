@@ -1,3 +1,4 @@
+#include "sql/resolver/ddl/ob_ai_column_resolver_utils.h"
 /*
  * Copyright (c) 2025 OceanBase.
  *
@@ -2094,6 +2095,21 @@ int ObDmlCgService::generate_dml_base_ctdef(ObLogicalOperator &op,
 {
   int ret = OB_SUCCESS;
   dml_base_ctdef.is_primary_index_ = index_dml_info.is_primary_index_;
+  if (dml_base_ctdef.is_primary_index_) {
+    const ObTableSchema *table = nullptr;
+    OZ(cg_.opt_ctx_->get_schema_guard()->get_table_schema(index_dml_info.ref_table_id_, table));
+    CK(table != nullptr);
+    for (int64_t i = 0; OB_SUCC(ret) && i < table->get_column_count(); ++i) {
+      if (AiColumnResolverUtils::is_spec_column(*table->get_column_schema_by_idx(i))) {
+        dml_base_ctdef.has_ai_columns_ = true;
+      }
+    }
+    if (dml_base_ctdef.has_ai_columns_) {
+      cg_.phy_plan_->set_has_nested_sql(true);
+      cg_.phy_plan_->set_need_serial_exec(true);
+    }
+  }
+
   dml_base_ctdef.is_vec_hnsw_index_vid_opt_ = index_dml_info.is_vec_hnsw_index_vid_opt_;
   dml_base_ctdef.column_ids_.set_capacity(index_dml_info.column_exprs_.count());
   if (OB_FAIL(generate_dml_column_ids(op, index_dml_info.column_exprs_, dml_base_ctdef.column_ids_))) {

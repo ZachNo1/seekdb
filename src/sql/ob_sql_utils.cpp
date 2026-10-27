@@ -3373,7 +3373,13 @@ bool ObSQLUtils::is_iter_uncommitted_row(ObExecContext *cur_ctx)
 
 bool ObSQLUtils::is_nested_sql(ObExecContext *cur_ctx)
 {
-  return is_pl_nested_sql(cur_ctx) || is_fk_nested_sql(cur_ctx) || is_online_stat_gathering_nested_sql(cur_ctx);
+  // Native services can explicitly nest SQL in the owning session without a
+  // PL stack or a foreign-key cascade. They must share the outer statement's
+  // transaction/savepoint lifecycle rather than ending it as a top-level SQL.
+  const bool explicit_session_nesting = cur_ctx != nullptr && cur_ctx->get_parent_ctx() != nullptr
+      && cur_ctx->get_my_session() != nullptr && cur_ctx->get_my_session()->get_nested_count() > 0;
+  return explicit_session_nesting || is_pl_nested_sql(cur_ctx) || is_fk_nested_sql(cur_ctx)
+      || is_online_stat_gathering_nested_sql(cur_ctx);
 }
 
 //bind current execute context to my session,

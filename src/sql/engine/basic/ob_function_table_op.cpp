@@ -101,6 +101,7 @@ int ObFunctionTableOp::open_file_table()
 {
   int ret=OB_SUCCESS;
   filesql::Error error;ObDatum *metadata=nullptr;
+  try {
   if(OB_FAIL(filesql::check_enabled(*ctx_.get_my_session()))){
   }else if(OB_FAIL(MY_SPEC.value_expr_->eval(eval_ctx_,metadata))){
   }else if(metadata==nullptr||metadata->is_null()){ret=OB_ERR_UNEXPECTED;
@@ -114,6 +115,7 @@ int ObFunctionTableOp::open_file_table()
       ret=filesql::sql_error(file_reader_.open(file_definition_,projection,error),error);
     }
   }
+  } catch (const std::bad_alloc &) { ret=OB_ALLOCATE_MEMORY_FAILED; }
   return ret;
 }
 
