@@ -226,7 +226,7 @@ inline int64_t ObBitVectorImpl<WordType>::memory_size(const int64_t size)
 template<typename WordType>
 inline bool ObBitVectorImpl<WordType>::at(const int64_t idx) const
 {
-  OB_ASSERT(idx >= 0);
+  if (OB_UNLIKELY(idx < 0)) { ob_abort(); }
   // The modern compiler is smart enough to optimize this division to bit operations.
   // Do not bother yourself with that.
   return data_[idx / WORD_BITS] & (static_cast<WordType>(1) << (idx % WORD_BITS));
@@ -235,21 +235,21 @@ inline bool ObBitVectorImpl<WordType>::at(const int64_t idx) const
 template<typename WordType>
 inline void ObBitVectorImpl<WordType>::bit_or_assign(const int64_t idx, const bool v)
 {
-  OB_ASSERT(idx >= 0);
+  if (OB_UNLIKELY(idx < 0)) { ob_abort(); }
   data_[idx / WORD_BITS] |= static_cast<WordType>(v) << (idx % WORD_BITS);
 }
 
 template<typename WordType>
 inline void ObBitVectorImpl<WordType>::set(const int64_t idx)
 {
-  OB_ASSERT(idx >= 0);
+  if (OB_UNLIKELY(idx < 0)) { ob_abort(); }
   data_[idx / WORD_BITS] |= static_cast<WordType>(1) << (idx % WORD_BITS);
 }
 
 template<typename WordType>
 OB_INLINE void ObBitVectorImpl<WordType>::atomic_set(const int64_t idx)
 {
-  OB_ASSERT(idx >= 0);
+  if (OB_UNLIKELY(idx < 0)) { ob_abort(); }
   WordType val = data_[idx / WORD_BITS];
   WordType new_val = val | (static_cast<WordType>(1) << (idx % WORD_BITS));
   while (!ATOMIC_BCAS(&data_[idx / WORD_BITS], val, new_val)) {
@@ -261,7 +261,7 @@ OB_INLINE void ObBitVectorImpl<WordType>::atomic_set(const int64_t idx)
 template<typename WordType>
 inline void ObBitVectorImpl<WordType>::unset(const int64_t idx)
 {
-  OB_ASSERT(idx >= 0);
+  if (OB_UNLIKELY(idx < 0)) { ob_abort(); }
   data_[idx / WORD_BITS] &= ~(static_cast<WordType>(1) << (idx % WORD_BITS));
 }
 
