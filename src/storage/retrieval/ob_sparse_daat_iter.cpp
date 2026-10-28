@@ -161,6 +161,7 @@ void ObSRDaaTIterImpl::reset()
   if (OB_NOT_NULL(merge_heap_)) {
     merge_heap_->~ObSRMergeHeap();
     merge_heap_ = nullptr;
+    simple_merge_ = nullptr;
   }
   if (OB_NOT_NULL(relevance_collector_)) {
     relevance_collector_->reset();
@@ -331,16 +332,34 @@ int ObSRDaaTIterImpl::collect_dims_by_id(const ObDatum *&id_datum, double &relev
   relevance = 0.0;
   got_valid_id = false;
 
-  while (OB_SUCC(ret) && !merge_heap_->empty() && !curr_doc_end) {
-    if (merge_heap_->is_unique_champion()) {
-      curr_doc_end = true;
+  // The simple merger is final, so going through its own type lets the compiler
+  // drop the vtable hop for every call in this loop.
+  ObSRSimpleMerger *simple = simple_merge_;
+  if (OB_NOT_NULL(simple)) {
+    while (OB_SUCC(ret) && !simple->empty() && !curr_doc_end) {
+      if (simple->is_unique_champion()) {
+        curr_doc_end = true;
+      }
+      if (OB_FAIL(simple->top(top_item))) {
+      } else if (OB_FAIL(relevance_collector_->collect_one_dim(top_item->iter_idx_, top_item->relevance_))) {
+      } else if (FALSE_IT(iter_idx = top_item->iter_idx_)) {
+      } else if (OB_FAIL(simple->pop())) {
+      } else {
+        next_round_iter_idxes_[next_round_cnt_++] = iter_idx;
+      }
     }
-    if (OB_FAIL(merge_heap_->top(top_item))) {
-    } else if (OB_FAIL(relevance_collector_->collect_one_dim(top_item->iter_idx_, top_item->relevance_))) {
-    } else if (FALSE_IT(iter_idx = top_item->iter_idx_)) {
-    } else if (OB_FAIL(merge_heap_->pop())) {
-    } else {
-      next_round_iter_idxes_[next_round_cnt_++] = iter_idx;
+  } else {
+    while (OB_SUCC(ret) && !merge_heap_->empty() && !curr_doc_end) {
+      if (merge_heap_->is_unique_champion()) {
+        curr_doc_end = true;
+      }
+      if (OB_FAIL(merge_heap_->top(top_item))) {
+      } else if (OB_FAIL(relevance_collector_->collect_one_dim(top_item->iter_idx_, top_item->relevance_))) {
+      } else if (FALSE_IT(iter_idx = top_item->iter_idx_)) {
+      } else if (OB_FAIL(merge_heap_->pop())) {
+      } else {
+        next_round_iter_idxes_[next_round_cnt_++] = iter_idx;
+      }
     }
   }
 
@@ -475,6 +494,7 @@ int ObSRDaaTIterImpl::init_merge_heap(const int64_t count)
       ret = OB_ALLOCATE_MEMORY_FAILED;
     } else {
       merge_heap_ = simple_merge;
+      simple_merge_ = simple_merge;
     }
   } else if (OB_ISNULL(loser_tree = OB_NEWx(ObSRLoserTree, iter_allocator_, merge_cmp_))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;

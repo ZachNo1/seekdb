@@ -100,6 +100,8 @@ protected:
   ObIArray<ObISRDaaTDimIter *> *dim_iters_;
   ObSRMergeCmp merge_cmp_;
   ObSRMergeHeap *merge_heap_;
+  // Cached concrete merger so the merge loop can call it without a vtable hop.
+  ObSRSimpleMerger *simple_merge_ = nullptr;
   ObSRDaaTRelevanceCollector *relevance_collector_;
   ObFixedArray<const ObDatum *, ObIAllocator> iter_domain_ids_; // record every dim iter's output domain id, one (ObDatum *) for one dim iter
   ObFixedArray<ObDocIdExt, ObIAllocator> buffered_domain_ids_; // cache for output

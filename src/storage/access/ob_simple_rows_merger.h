@@ -24,7 +24,7 @@ namespace storage
 {
 
 template <typename T, typename Comparator>
-class ObSimpleRowsMerger : public common::ObRowsMerger<T, Comparator>
+class ObSimpleRowsMerger final : public common::ObRowsMerger<T, Comparator>
 {
 public:
   static const int64_t USE_SIMPLE_MERGER_MAX_TABLE_CNT = 3;
