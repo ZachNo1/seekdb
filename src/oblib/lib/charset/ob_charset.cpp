@@ -2046,7 +2046,7 @@ int ObCharset::is_mbchar(const ObCollationType collation_type, const char *str, 
   return ret;
 }
 
-const ObCharsetInfo *ObCharset::get_charset(const ObCollationType collation_type)
+const ObCharsetInfo *ObCharset::get_charset_slow(const ObCollationType collation_type)
 {
   ObCharsetInfo *ret = NULL;
   if (OB_UNLIKELY(collation_type <= CS_TYPE_INVALID ||

@@ -39,18 +39,15 @@ public:
   virtual ~ObIArrayWrap() {}
   inline const T &at(int64_t idx) const
   {
-#ifndef NDEBUG
-    extra_access_check();
-#endif
-    OB_ASSERT(idx >= 0 && idx < count_);
+    // Keep a cheap bounds guard so the accessor stays small enough to inline.
+    // The heavyweight OB_ASSERT path (log + backtrace) made every array
+    // access an out-of-line call in the FTS build hot loop.
+    if (OB_UNLIKELY(idx < 0 || idx >= count_)) { ob_abort(); }
     return data_[idx];
   }
   inline T &at(int64_t idx)
   {
-#ifndef NDEBUG
-    extra_access_check();
-#endif
-    OB_ASSERT(idx >= 0 && idx < count_);
+    if (OB_UNLIKELY(idx < 0 || idx >= count_)) { ob_abort(); }
     return data_[idx];
   }
   inline int64_t count() const { return count_; }

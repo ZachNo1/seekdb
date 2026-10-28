@@ -689,7 +689,18 @@ public:
   static bool is_graph(const ObCollationType collation_type, char c);
   static bool usemb(const ObCollationType collation_type);
   static int is_mbchar(const ObCollationType collation_type, const char *str, const char *end);
-  static const ObCharsetInfo *get_charset(const ObCollationType coll_type);
+  // Fast path inlined at call sites: the collation array is filled during
+  // startup, so the common case is a single bounds check plus one load.
+  // Anything unexpected falls back to the out-of-line initializer.
+  static const ObCharsetInfo *get_charset(const ObCollationType coll_type)
+  {
+    const ObCharsetInfo *info = NULL;
+    if (OB_LIKELY(coll_type > CS_TYPE_INVALID && coll_type < CS_TYPE_MAX)) {
+      info = charset_arr_inited[coll_type];
+    }
+    return OB_LIKELY(NULL != info) ? info : get_charset_slow(coll_type);
+  }
+  static const ObCharsetInfo *get_charset_slow(const ObCollationType coll_type);
   static int get_mbmaxlen_by_coll(const ObCollationType collation_type, int64_t &mbmaxlen);
   static int get_mbminlen_by_coll(const ObCollationType collation_type, int64_t &mbminlen);
 
